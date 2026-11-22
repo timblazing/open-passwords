@@ -61,7 +61,7 @@ Borrowing Apple's key is the only way in. The evidence is in [VERIFICATION.md](V
 ## Requirements
 
 - macOS 14 (Sonoma) or later, signed into iCloud with Passwords on
-- Chrome, Edge, or Brave (any Chromium browser that loads unpacked extensions should do, those three are what I've run it on)
+- Chrome, Edge, Brave, or Helium (any Chromium browser that loads unpacked extensions should do, those are what it has been run on)
 - Apple's official iCloud Passwords extension removed or disabled
 
 ## Install
@@ -85,7 +85,7 @@ The popup can suppress the browser's competing save bubble and autofill dropdown
 ./native/install.sh   # registers a tiny native helper, macOS only
 ```
 
-It copies `openpasswords-policy.py` to `~/Library/Application Support/OpenPasswords` and registers it as a native messaging host with every Chromium browser it finds (Chrome, Brave, Edge, Chromium, Arc, Vivaldi). Fully quit and reopen your browser (`Cmd+Q`). The **Hide browser password manager entirely** toggle in the popup now works: it builds a configuration profile that sets `PasswordManagerEnabled=false` for those browsers and opens it, you approve it once in System Settings. Turning the toggle off opens the Profiles pane so you can remove it again. `./native/uninstall.sh` removes the helper and its registrations. The helper accepts messages solely from this extension's ID and only ever runs `open` on the profile it wrote.
+It copies `openpasswords-policy.py` to `~/Library/Application Support/OpenPasswords` and registers it as a native messaging host with every Chromium browser it finds (Chrome, Brave, Edge, Chromium, Arc, Vivaldi, Helium). Fully quit and reopen your browser (`Cmd+Q`). The **Hide browser password manager entirely** toggle in the popup now works: it builds a configuration profile that sets `PasswordManagerEnabled=false` for those browsers and opens it, you approve it once in System Settings. Turning the toggle off opens the Profiles pane so you can remove it again. `./native/uninstall.sh` removes the helper and its registrations. The helper accepts messages solely from this extension's ID and only ever runs `open` on the profile it wrote.
 
 ## Verification codes, the Passwords app, and a shortcut
 
@@ -124,6 +124,10 @@ PasswordManagerBrowserExtensionHelper (macOS native, talks to iCloud Keychain)
 - it still rides on Apple's helper. if Apple changes or breaks it, like past macOS updates have, this breaks too.
 
 ## Troubleshooting
+
+### "Couldn't reach Apple's password helper" after it used to work
+
+Apple's helper only starts when the browser launching it still has its original developer signature. Anything that modifies the browser app and re-signs it (for example a script that copies Widevine into Helium.app and runs `codesign --sign -`) breaks that, and macOS kills the helper. Check with `codesign -dv /Applications/<Browser>.app`: `TeamIdentifier=not set` means the signature was replaced. Reinstall the browser from its official download, and stop whatever re-signed it.
 
 ### Your Mac shows a code, but the extension says it is incorrect
 
