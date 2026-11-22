@@ -25,6 +25,8 @@ const allowed = [
   "http://100.127.255.254/",
   "http://[fd12:3456::1]/",
   "http://[fe80::1]/",
+  "http://nas.local./",
+  "http://localhost./",
 ];
 
 const blocked = [
@@ -37,6 +39,9 @@ const blocked = [
   "http://100.128.0.1/",
   "http://192.169.1.1/",
   "http://[2001:db8::1]/",
+  "http://[fc::1]/",
+  "http://[fe8::1]/",
+  "http://example.com./",
   "http://evil.local.example.com/",
   "http://ts.net.example.com/",
   "ftp://nas.local/",

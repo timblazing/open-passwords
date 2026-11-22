@@ -23,12 +23,13 @@ function isPrivateIPv6(host) {
   if (!host.startsWith("[")) return false;
   const h = host.slice(1, -1);
   // loopback, unique-local fc00::/7, link-local fe80::/10
-  return h === "::1" || /^f[cd][0-9a-f]{0,2}:/.test(h) || /^fe[89ab][0-9a-f]?:/.test(h);
+  return h === "::1" || /^f[cd][0-9a-f]{2}:/.test(h) || /^fe[89ab][0-9a-f]:/.test(h);
 }
 
 export function isPrivateNetworkHost(host) {
   if (!host) return false;
-  host = host.toLowerCase();
+  // "nas.local." is the same name as "nas.local"
+  host = host.toLowerCase().replace(/\.$/, "");
   if (host === "localhost") return true;
   if (isPrivateIPv4(host) || isPrivateIPv6(host)) return true;
   // a one-word name only resolves through the local network's DNS (truenas-scale, router)

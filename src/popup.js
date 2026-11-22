@@ -237,6 +237,7 @@ async function renderLogins() {
   }
   if (!res.logins.length) {
     none.hidden = false;
+    none.textContent = "No saved passwords for this site.";
     return;
   }
   for (const login of res.logins) {

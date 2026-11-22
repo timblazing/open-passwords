@@ -640,7 +640,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           const tab = await activeTab();
           const entry = tab?.id != null ? lastFillByTab.get(tab.id) : null;
           const host = tab?.url ? registrableHost(tab.url) : null;
-          if (!entry || !host || entry.host !== host) {
+          if (!entry || !host || entry.host !== host || !canFillOn(tab.url)) {
             return sendResponse({ ok: true, refilled: false });
           }
           try {

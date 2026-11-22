@@ -546,9 +546,7 @@ async function buildLockedSuggestion(field, onUnlock) {
     const r2 = await chrome.runtime.sendMessage({ type: "inlineLogins" }).catch(() => null);
     cachedLogins = r2?.logins || [];
     if (cachedLogins.length === 1) {
-      removeSuggestion();
-      fillAnchor = field;
-      chrome.runtime.sendMessage({ type: "inlineFill", loginName: cachedLogins[0] }).catch(() => {});
+      fillFromRow(box, field, cachedLogins[0]);
     } else if (cachedLogins.length > 1) {
       buildChooser(field, cachedLogins);
     } else {
@@ -1063,6 +1061,8 @@ async function onFocusIn(e) {
     return;
   }
   if (!frameIsSafe()) return;
+  // focus comes back here when the Touch ID sheet closes, rebuilding would drop the fill's result
+  if (fillPending && field === anchorField && suggestionEl) return;
   // still offer on a pre-filled field (apple/chrome do), only stay quiet if we just filled it
   const v = (field.value || "").trim();
   if (v) {
