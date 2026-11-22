@@ -413,6 +413,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
                 username: cred.username,
                 password: cred.password,
                 expectedHost: host,
+                expectedOrigin: new URL(frameUrl).origin,
               },
               { frameId },
             );
@@ -623,6 +624,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
               username: cred.username,
               password: cred.password,
               expectedHost: host,
+              expectedOrigin: new URL(tab.url).origin,
             });
             filled = !!resp?.filled;
             if (filled) {
@@ -652,6 +654,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
               username: cred.username,
               password: cred.password,
               expectedHost: host,
+              expectedOrigin: new URL(tab.url).origin,
             });
             sendResponse({ ok: true, refilled: !!resp?.filled, username: cred.username });
           } catch (e) {

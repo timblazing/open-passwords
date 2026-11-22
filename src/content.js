@@ -211,6 +211,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     sendResponse({ ok: false, filled: false, error: "origin mismatch" });
     return true;
   }
+  // the page can navigate https -> http on the same host while Touch ID is up
+  if (msg.expectedOrigin && location.origin !== msg.expectedOrigin) {
+    sendResponse({ ok: false, filled: false, error: "origin mismatch" });
+    return true;
+  }
   const filled = fillCredentials(msg.username, msg.password, liveField(fillAnchor));
   // a submit right after must not re-offer to save this existing login
   if (filled) lastAutofill = { host: location.hostname, username: msg.username, password: msg.password, at: Date.now() };
@@ -545,6 +550,8 @@ async function buildLockedSuggestion(field, onUnlock) {
     cachedLogins = null;
     const r2 = await chrome.runtime.sendMessage({ type: "inlineLogins" }).catch(() => null);
     cachedLogins = r2?.logins || [];
+    // dismissed while the lookup ran, nothing left to show progress in
+    if (suggestionEl !== box) return;
     if (cachedLogins.length === 1) {
       fillFromRow(box, field, cachedLogins[0]);
     } else if (cachedLogins.length > 1) {
