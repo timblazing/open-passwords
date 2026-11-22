@@ -139,6 +139,7 @@ A code expires after 3 minutes. After that, the extension asks your Mac for a ne
 - every password query is AES-GCM encrypted end to end with the helper
 - the PIN only derives the SRP shared key, it isn't stored
 - reading a password can trigger a Touch ID prompt, that prompt comes from the helper
+- logins fill only on HTTPS pages, plus plain HTTP on home-network and tailnet hosts (a NAS or router at `http://truenas`, `http://192.168.1.1`, `*.local`, `*.ts.net`). Public HTTP sites are refused and the dropdown says why ([origins.js](src/origins.js))
 
 ## Credits
 

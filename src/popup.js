@@ -249,8 +249,10 @@ async function renderLogins() {
     fill.addEventListener("click", async () => {
       fill.disabled = true;
       const r = await send({ type: "fillOnPage", tabId: tab.id, url: tab.url, loginName: login });
-      if (r?.ok && r.filled) window.close();
-      else fill.disabled = false;
+      if (r?.ok && r.filled) return window.close();
+      fill.disabled = false;
+      none.hidden = false;
+      none.textContent = r?.error ?? "Couldn't fill this login.";
     });
     li.append(u, fill);
     list.appendChild(li);
