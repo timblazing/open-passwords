@@ -187,6 +187,10 @@ function send(msg) {
   return new Promise((resolve) => chrome.runtime.sendMessage(msg, resolve));
 }
 
+function sendWithin(msg, ms) {
+  return Promise.race([send(msg), new Promise((resolve) => setTimeout(() => resolve({ ok: false, error: "Apple Passwords didn't answer. Try ↻." }), ms))]);
+}
+
 async function activeTab() {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   return tab;
@@ -206,8 +210,9 @@ async function render(state) {
     return;
   }
   if (state === "unlocked") {
-    await renderLogins();
+    // show the view first, a slow or stuck lookup must not leave the popup blank
     show("unlocked");
+    await renderLogins();
     renderCodes();
     renderAppLinks();
     return;
@@ -224,7 +229,7 @@ async function renderLogins() {
   list.innerHTML = "";
   none.hidden = true;
 
-  const res = await send({ type: "getLogins", tabId: tab.id, url: tab.url });
+  const res = await sendWithin({ type: "getLogins", tabId: tab.id, url: tab.url }, 8000);
   if (!res?.ok) {
     none.hidden = false;
     none.textContent = res?.error ?? "Couldn't load logins.";
@@ -232,6 +237,7 @@ async function renderLogins() {
   }
   if (!res.logins.length) {
     none.hidden = false;
+    none.textContent = "No saved passwords for this site.";
     return;
   }
   for (const login of res.logins) {
@@ -244,8 +250,10 @@ async function renderLogins() {
     fill.addEventListener("click", async () => {
       fill.disabled = true;
       const r = await send({ type: "fillOnPage", tabId: tab.id, url: tab.url, loginName: login });
-      if (r?.ok && r.filled) window.close();
-      else fill.disabled = false;
+      if (r?.ok && r.filled) return window.close();
+      fill.disabled = false;
+      none.hidden = false;
+      none.textContent = r?.error ?? "Couldn't fill this login.";
     });
     li.append(u, fill);
     list.appendChild(li);

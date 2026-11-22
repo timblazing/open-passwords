@@ -1,6 +1,7 @@
 // alarm keep-alive holds the MV3 worker so the PIN isnt re-prompted every idle-out
 
 import { ApplePasswords, State } from "./protocol.js";
+import { canFillOn, NOT_SECURE_ERROR } from "./origins.js";
 
 const client = new ApplePasswords();
 
@@ -293,17 +294,6 @@ function registrableHost(u) {
   }
 }
 
-// loopback and RFC 6761 reserved TLDs are the only non-HTTPS origins treated as fillable
-function isLocalDevHost(host) {
-  return (
-    host === "localhost" ||
-    host === "127.0.0.1" ||
-    host === "[::1]" ||
-    host?.endsWith(".localhost") ||
-    host?.endsWith(".test")
-  );
-}
-
 // only these from a content script, none returns a password to the page
 const CONTENT_ALLOWED = new Set([
   "inlineLogins",
@@ -373,8 +363,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           const frameId = sender.frameId;
           if (!frameUrl || sender.tab?.id == null || frameId == null) return sendResponse({ ok: false, error: "no frame" });
           const host = registrableHost(frameUrl);
-          if (!/^https:\/\//i.test(frameUrl) && !isLocalDevHost(host)) {
-            return sendResponse({ ok: false, error: "refusing to fill on a non-HTTPS frame" });
+          if (!canFillOn(frameUrl)) {
+            return sendResponse({ ok: false, error: NOT_SECURE_ERROR });
           }
           const code = await resolveOneTimeCode(sender.tab.id, Number(msg.id));
           const resp = await chrome.tabs.sendMessage(
@@ -394,20 +384,24 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
             return sendResponse({ ok: false, error: "no frame" });
           }
           const host = registrableHost(frameUrl);
-          const isLocalDev =
-            host === "localhost" ||
-            host === "127.0.0.1" ||
-            host === "[::1]" ||
-            host?.endsWith(".localhost") ||
-            host?.endsWith(".test");
-          if (!/^https:\/\//i.test(frameUrl) && !isLocalDev) {
-            return sendResponse({ ok: false, error: "refusing to fill on a non-HTTPS frame" });
+          if (!canFillOn(frameUrl)) {
+            return sendResponse({ ok: false, error: NOT_SECURE_ERROR });
           }
           // pass only the username through, sites is caller-supplied
           const safeLogin = { username: msg.loginName?.username };
           let cred = pwCacheGet(host, safeLogin.username);
           if (!cred) {
-            cred = await client.getPasswordForLoginName(sender.tab.id, frameUrl, safeLogin);
+            try {
+              cred = await client.getPasswordForLoginName(sender.tab.id, frameUrl, safeLogin);
+            } catch (e) {
+              const msgText = String(e?.message ?? e);
+              const error = /timeout/i.test(msgText)
+                ? "Apple Passwords didn't answer. Was Touch ID dismissed?"
+                : /not unlocked/i.test(msgText)
+                  ? "Locked. Click the Open Passwords icon to unlock"
+                  : msgText;
+              return sendResponse({ ok: false, filled: false, error });
+            }
             if (cred) pwCacheSet(host, cred);
           }
           let filled = false;
@@ -419,6 +413,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
                 username: cred.username,
                 password: cred.password,
                 expectedHost: host,
+                expectedOrigin: new URL(frameUrl).origin,
               },
               { frameId },
             );
@@ -428,7 +423,12 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
               lastFillByTab.set(sender.tab.id, { host, username: cred.username });
             }
           }
-          sendResponse({ ok: true, filled });
+          const error = filled
+            ? undefined
+            : cred
+              ? "Couldn't find the login fields on this page"
+              : "Apple Passwords didn't return this login";
+          sendResponse({ ok: true, filled, error });
           break;
         }
 
@@ -439,7 +439,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
             return sendResponse({ ok: false, error: "no frame" });
           }
           const host = registrableHost(frameUrl);
-          if (!/^https:\/\//i.test(frameUrl) && !isLocalDevHost(host)) {
+          if (!canFillOn(frameUrl)) {
             return sendResponse({ ok: false, error: "refusing to save from a non-HTTPS frame" });
           }
           if (!msg.password) return sendResponse({ ok: false, error: "no password" });
@@ -521,8 +521,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           const tab = await activeTab();
           if (!tab?.url) return sendResponse({ ok: false, error: "no active tab" });
           const host = registrableHost(tab.url);
-          if (!/^https:\/\//i.test(tab.url) && !isLocalDevHost(host)) {
-            return sendResponse({ ok: false, error: "refusing to fill on a non-HTTPS page" });
+          if (!canFillOn(tab.url)) {
+            return sendResponse({ ok: false, error: NOT_SECURE_ERROR });
           }
           const code = await resolveOneTimeCode(tab.id, Number(msg.id));
           let filled = false;
@@ -608,14 +608,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           const tab = await activeTab();
           if (!tab?.url) return sendResponse({ ok: false, error: "no active tab" });
           const host = registrableHost(tab.url);
-          const isLocalDev =
-            host === "localhost" ||
-            host === "127.0.0.1" ||
-            host === "[::1]" ||
-            host?.endsWith(".localhost") ||
-            host?.endsWith(".test");
-          if (!/^https:\/\//i.test(tab.url) && !isLocalDev) {
-            return sendResponse({ ok: false, error: "refusing to fill on a non-HTTPS page" });
+          if (!canFillOn(tab.url)) {
+            return sendResponse({ ok: false, error: NOT_SECURE_ERROR });
           }
           let cred = pwCacheGet(host, msg.loginName?.username);
           if (!cred) {
@@ -630,6 +624,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
               username: cred.username,
               password: cred.password,
               expectedHost: host,
+              expectedOrigin: new URL(tab.url).origin,
             });
             filled = !!resp?.filled;
             if (filled) {
@@ -647,7 +642,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           const tab = await activeTab();
           const entry = tab?.id != null ? lastFillByTab.get(tab.id) : null;
           const host = tab?.url ? registrableHost(tab.url) : null;
-          if (!entry || !host || entry.host !== host) {
+          if (!entry || !host || entry.host !== host || !canFillOn(tab.url)) {
             return sendResponse({ ok: true, refilled: false });
           }
           try {
@@ -659,6 +654,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
               username: cred.username,
               password: cred.password,
               expectedHost: host,
+              expectedOrigin: new URL(tab.url).origin,
             });
             sendResponse({ ok: true, refilled: !!resp?.filled, username: cred.username });
           } catch (e) {

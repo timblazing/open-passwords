@@ -211,6 +211,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     sendResponse({ ok: false, filled: false, error: "origin mismatch" });
     return true;
   }
+  // the page can navigate https -> http on the same host while Touch ID is up
+  if (msg.expectedOrigin && location.origin !== msg.expectedOrigin) {
+    sendResponse({ ok: false, filled: false, error: "origin mismatch" });
+    return true;
+  }
   const filled = fillCredentials(msg.username, msg.password, liveField(fillAnchor));
   // a submit right after must not re-offer to save this existing login
   if (filled) lastAutofill = { host: location.hostname, username: msg.username, password: msg.password, at: Date.now() };
@@ -545,10 +550,10 @@ async function buildLockedSuggestion(field, onUnlock) {
     cachedLogins = null;
     const r2 = await chrome.runtime.sendMessage({ type: "inlineLogins" }).catch(() => null);
     cachedLogins = r2?.logins || [];
+    // dismissed while the lookup ran, nothing left to show progress in
+    if (suggestionEl !== box) return;
     if (cachedLogins.length === 1) {
-      removeSuggestion();
-      fillAnchor = field;
-      chrome.runtime.sendMessage({ type: "inlineFill", loginName: cachedLogins[0] }).catch(() => {});
+      fillFromRow(box, field, cachedLogins[0]);
     } else if (cachedLogins.length > 1) {
       buildChooser(field, cachedLogins);
     } else {
@@ -691,13 +696,54 @@ function appendLoginRows(box, field, logins) {
       overflow: "hidden",
       textOverflow: "ellipsis",
     });
-    registerRow(row, () => {
-      removeSuggestion();
-      fillAnchor = field;
-      chrome.runtime.sendMessage({ type: "inlineFill", loginName: login });
-    });
+    registerRow(row, () => fillFromRow(box, field, login));
     box.appendChild(row);
   }
+}
+
+// set while a fill waits on the helper, so the Touch ID sheet taking focus doesn't close the box
+let fillPending = false;
+
+function setBoxStatus(box, text, isError) {
+  let el = box.querySelector("[data-op-status]");
+  if (!el) {
+    el = document.createElement("div");
+    el.setAttribute("data-op-status", "1");
+    el.setAttribute("role", "status");
+    Object.assign(el.style, {
+      padding: "6px 12px 8px",
+      fontSize: "12px",
+      borderTop: "1px solid rgba(128,128,128,0.18)",
+      whiteSpace: "normal",
+    });
+    box.appendChild(el);
+  }
+  el.style.color = isError ? "#ff453a" : "inherit";
+  el.style.opacity = isError ? "1" : "0.7";
+  el.textContent = text;
+  positionBox();
+}
+
+// keep the box up until the fill lands, a failure that just closed it looked like a dead click
+async function fillFromRow(box, field, login) {
+  if (fillPending) return;
+  fillPending = true;
+  fillAnchor = field;
+  // a cached fill is instant, only show progress when the helper is slow (usually Touch ID)
+  const slow = setTimeout(() => {
+    if (suggestionEl === box) setBoxStatus(box, "Filling… confirm with Touch ID if asked", false);
+  }, 300);
+  let res;
+  try {
+    res = await chrome.runtime.sendMessage({ type: "inlineFill", loginName: login });
+  } catch {
+    res = { ok: false, error: "Open Passwords was reloaded. Refresh this page" };
+  }
+  clearTimeout(slow);
+  fillPending = false;
+  if (suggestionEl !== box) return;
+  if (res?.filled) removeSuggestion();
+  else setBoxStatus(box, res?.error || "Couldn't fill this login", true);
 }
 
 function appendGeneratorOptions(box, field, separatorAbove) {
@@ -1022,6 +1068,8 @@ async function onFocusIn(e) {
     return;
   }
   if (!frameIsSafe()) return;
+  // focus comes back here when the Touch ID sheet closes, rebuilding would drop the fill's result
+  if (fillPending && field === anchorField && suggestionEl) return;
   // still offer on a pre-filled field (apple/chrome do), only stay quiet if we just filled it
   const v = (field.value || "").trim();
   if (v) {
@@ -1049,6 +1097,7 @@ document.addEventListener(
   "focusout",
   (e) => {
     if (!suggestionEl || e.target !== anchorField) return;
+    if (fillPending) return;
     if (e.relatedTarget && suggestionEl.contains(e.relatedTarget)) return;
     removeSuggestion();
   },
